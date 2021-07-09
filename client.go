@@ -25,7 +25,7 @@ var (
 
 type client struct {
 	cli     *clientv3.Client   // etcd client
-	cfg     Config             // client 配置信息
+	cfg     *Config             // client 配置信息
 	ctx     context.Context    // ctx
 	cancel  context.CancelFunc // cancel 取消函数
 	lease   clientv3.LeaseID   // 注册 TTL 时生成的租约 ID, Close 时要通知 etcd 删除
@@ -36,7 +36,7 @@ type client struct {
 }
 
 // New 创建一个client
-func New(cfg Config) *client {
+func NewClient(cfg *Config) *client {
 	return &client{cfg: cfg}
 }
 
@@ -45,9 +45,7 @@ func (c *client) Start() (err error) {
 	if c.running {
 		return ErrAlreadyStart
 	}
-	if err = c.cfg.validate(); err != nil {
-		return err
-	}
+
 	c.cli, err = clientv3.New(c.cfg.toEtcdConfig())
 	if err != nil {
 		return err
