@@ -13,19 +13,21 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-var (
-	ErrAlreadyStart = errors.New("client 已经运行")
-	ErrLogged       = errors.New("重复登录")
-	ErrEndpoints    = errors.New("endpoint 必须输入")
-	ErrNotStarted   = errors.New("client 未启动")
-
+const (
 	activePrefix = "rock-go/active/"
 	scriptPrefix = "rock-go/script/"
 )
 
+var (
+	ErrLogged       = errors.New("节点已经登录")
+	ErrAlreadyStart = errors.New("client 已经运行")
+	ErrEndpoints    = errors.New("endpoint 必须输入")
+	ErrNotStarted   = errors.New("client 未没有")
+)
+
 type client struct {
 	cli     *clientv3.Client   // etcd client
-	cfg     *Config             // client 配置信息
+	cfg     *Config            // client 配置信息
 	ctx     context.Context    // ctx
 	cancel  context.CancelFunc // cancel 取消函数
 	lease   clientv3.LeaseID   // 注册 TTL 时生成的租约 ID, Close 时要通知 etcd 删除
@@ -52,8 +54,8 @@ func (c *client) Start() (err error) {
 	}
 	c.running = true
 	c.ctx, c.cancel = context.WithCancel(context.Background())
-	c.active = activePrefix + c.cfg.Username
-	c.script = scriptPrefix + c.cfg.Username + "/"
+	c.active = activePrefix + c.cfg.NodeID
+	c.script = scriptPrefix + c.cfg.NodeID + "/"
 	c.codes = make(map[string]*code, 16)
 
 	if err = c.keepalive(); err != nil {
@@ -71,9 +73,9 @@ func (c *client) Close() (err error) {
 	ctx, cancel := context.WithTimeout(c.ctx, c.cfg.Timeout)
 	defer cancel()
 	// 删除租约
-	if c.lease != 0 {
+	if c.lease != clientv3.NoLease {
 		if _, err = c.cli.Revoke(ctx, c.lease); err == nil {
-			c.lease = 0
+			c.lease = clientv3.NoLease
 		}
 	}
 
@@ -108,14 +110,14 @@ func (c *client) keepalive() error {
 		}
 	}()
 
-	_, err = c.cli.Put(ctx, c.active, "", clientv3.WithLease(lease.ID))
-	if err != nil {
-		return err
+	if _, err = c.cli.Put(ctx, c.active, "", clientv3.WithLease(lease.ID)); err == nil {
+		c.lease = lease.ID
 	}
-	c.lease = lease.ID
-	return nil
+	
+	return err
 }
 
+// read 从 etcd 读取配置
 func (c *client) read() error {
 	// 先拉取已经存在的配置
 	ctx, cancel := context.WithTimeout(c.ctx, c.cfg.Timeout)
@@ -141,7 +143,7 @@ func (c *client) read() error {
 	return nil
 }
 
-// watchChan 监听读取配置变更
+// watch 监听读取配置变更
 func (c *client) watch() {
 	ch := c.cli.Watch(c.ctx, c.script, clientv3.WithPrefix())
 
