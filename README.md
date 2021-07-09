@@ -32,25 +32,9 @@ func main() {
 }
 ```
 
-## lua go 调用
+## 二、lua 调用
 
-### 1. 注入插件
-```go
-package main
-
-import (
-	"github.com/rock-go/rock"
-	etcdcli "github.com/rock-go/rock-etcdcli-go"
-	"github.com/rock-go/rock/xcall"
-)
-
-func main() {
-	etcdcli.Inject(xcall.Rock)
-	rock.Setup(xcall.Rock)
-}
-```
-
-### 2. 编写 etcdcli.lua 配置文件
+### 1. 编写 etcdcli.lua 配置文件
 ```lua
 -- etcdcli.lua
 local cli = etcd.client {
@@ -70,7 +54,24 @@ proc.start(cli)
 proc.close(cli)
 ```
 
-### 2. 通过 console 加载并执行脚本
+### 2. 将组件注入到虚拟机中
+
+```go
+package main
+
+import (
+	"github.com/rock-go/rock"
+	etcdcli "github.com/rock-go/rock-etcdcli-go"
+	"github.com/rock-go/rock/xcall"
+)
+
+func main() {
+	etcdcli.Inject(xcall.Rock)
+	rock.Setup(xcall.Rock)
+}
+```
+
+### 3. 通过 console 加载并执行脚本
 ```shell
 load etcdcli.lua
 ```
