@@ -66,7 +66,7 @@ import (
 )
 
 func main() {
-	etcdcli.Inject(xcall.Rock)
+	etcdcli.LuaInjectApi(xcall.Rock)
 	rock.Setup(xcall.Rock)
 }
 ```
