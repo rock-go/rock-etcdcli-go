@@ -134,13 +134,15 @@ func (c *client) read() error {
 			continue
 		}
 		c.codes[cod.Name] = cod
-		doService(cod)
+		doService(cod , true)
 	}
 	if len(resp.Kvs) > 0 {
 		c.report()
 	}
 
+	doWakeup()
 	go c.watch()
+
 	return nil
 }
 
@@ -167,7 +169,7 @@ func (c *client) watch() {
 				continue
 			}
 			c.codes[cod.Name] = cod
-			doService(cod)
+			doService(cod , false)
 		}
 		if res.Canceled {
 			return
@@ -200,7 +202,7 @@ func (c *client) report() {
 }
 
 // doService 让 lua 虚拟机执行配置脚本
-func doService(c *code) {
+func doService(c *code , reg bool) {
 	defer func() {
 		if cause := recover(); cause != nil {
 			logger.Errorf("[执行 %s 发生 panic]: %v", c.Name, cause)
@@ -213,8 +215,17 @@ func doService(c *code) {
 		logger.Warn(err)
 		return
 	}
-	if err = service.Do(c.Name, data, xcall.Rock); err != nil {
-		logger.Error(err)
+
+	if reg {
+		err = service.Reg(c.Name , data , xcall.Rock)
+	} else {
+		err = service.Do(c.Name, data, xcall.Rock)
+	}
+}
+
+func doWakeup() {
+	if e := service.Wakeup(); e != nil {
+		logger.Error("%v" , e)
 	}
 }
 

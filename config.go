@@ -31,7 +31,7 @@ type Config struct {
 func newConfig(L *lua.LState) *Config {
 	tbl := L.CheckTable(1)
 	cfg := &Config{}
-	if e := xreflect.ToStruct(tbl, &cfg); e != nil {
+	if e := xreflect.ToStruct(tbl, cfg); e != nil {
 		L.RaiseError("%v", e)
 		return nil
 	}
