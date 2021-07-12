@@ -4,9 +4,9 @@ import (
 	"strings"
 	"time"
 
-	clientv3 "go.etcd.io/etcd/client/v3"
 	"github.com/rock-go/rock/lua"
 	"github.com/rock-go/rock/xreflect"
+	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 // code 从 etcd 接收的配置下发格式
@@ -19,25 +19,25 @@ type code struct {
 
 // Config 配置文件
 type Config struct {
-	Name     string        `json:"name"     yaml:"name"     lua:"name,etcdcli"`  // 名字, Lua虚拟机用
-	Endpoint string        `json:"endpoint" yaml:"endpoint" lua:"endpoint"` 	 // etcd 服务地址, 多个地址用,分割
-	Username string        `json:"username" yaml:"username" lua:"username"`      // etcd 用户名
-	Password string        `json:"password" yaml:"password" lua:"password"`      // etcd 密码
-	NodeID   string        `json:"node_id"  yaml:"node_id"  lua:"node_id"`       // 节点ID
-	Timeout  time.Duration `json:"timeout"  json:"timeout"  lua:"timeout"`       // etcd 操作超时时间
-	TTL      int64         `json:"ttl"      yaml:"ttl"      lua:"ttl"`           // 存活TTL时长, 单位: 秒
+	Name     string        `json:"name"     yaml:"name"     lua:"name,etcdcli"` // 名字, Lua虚拟机用
+	Endpoint string        `json:"endpoint" yaml:"endpoint" lua:"endpoint"`     // etcd 服务地址, 多个地址用,分割
+	Username string        `json:"username" yaml:"username" lua:"username"`     // etcd 用户名
+	Password string        `json:"password" yaml:"password" lua:"password"`     // etcd 密码
+	NodeID   string        `json:"node_id"  yaml:"node_id"  lua:"node_id"`      // 节点ID
+	Timeout  time.Duration `json:"timeout"  json:"timeout"  lua:"timeout"`      // etcd 操作超时时间
+	TTL      int64         `json:"ttl"      yaml:"ttl"      lua:"ttl"`          // 存活TTL时长, 单位: 秒
 }
 
 func newConfig(L *lua.LState) *Config {
 	tbl := L.CheckTable(1)
 	cfg := &Config{}
-	if e := xreflect.ToStruct(tbl , &cfg) ; e != nil {
-		L.RaiseError("%v" , e)
+	if e := xreflect.ToStruct(tbl, &cfg); e != nil {
+		L.RaiseError("%v", e)
 		return nil
 	}
 
 	if e := cfg.validate(); e != nil {
-		L.RaiseError("%v" , e)
+		L.RaiseError("%v", e)
 		return nil
 	}
 
@@ -46,7 +46,8 @@ func newConfig(L *lua.LState) *Config {
 
 // validate 校验一下
 func (c *Config) validate() error {
-	c.Endpoint = strings.TrimSpace(c.Endpoint)
+	// 去除所有的空格
+	c.Endpoint = strings.ReplaceAll(c.Endpoint, " ", "")
 	if c.Endpoint == "" {
 		return ErrEndpoints
 	}

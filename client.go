@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/rock-go/rock/logger"
 	"github.com/rock-go/rock/service"
@@ -37,7 +38,7 @@ type client struct {
 	codes   map[string]*code   // 从 etcd 拿到的所有配置信息
 }
 
-// New 创建一个client
+// NewClient 创建一个client
 func NewClient(cfg *Config) *client {
 	return &client{cfg: cfg}
 }
@@ -113,7 +114,7 @@ func (c *client) keepalive() error {
 	if _, err = c.cli.Put(ctx, c.active, "", clientv3.WithLease(lease.ID)); err == nil {
 		c.lease = lease.ID
 	}
-	
+
 	return err
 }
 
@@ -148,21 +149,28 @@ func (c *client) watch() {
 	ch := c.cli.Watch(c.ctx, c.script, clientv3.WithPrefix())
 
 	for res := range ch {
-		if res.Canceled {
-			return
-		}
 		for _, event := range res.Events {
+
+			// 当删除时, etcd只会发送删除的key, 不会发送value
+			if event.Type == mvccpb.DELETE {
+				keys := strings.Split(string(event.Kv.Key), c.script)
+				if len(keys) > 1 {
+					name := keys[1]
+					delete(c.codes, name)
+					delService(name)
+				}
+				continue
+			}
+
 			cod := &code{}
 			if err := json.Unmarshal(event.Kv.Value, cod); err != nil {
 				continue
 			}
-			if event.Type == mvccpb.DELETE {
-				delete(c.codes, cod.Name)
-				delService(cod.Name)
-			} else {
-				c.codes[cod.Name] = cod
-				doService(cod)
-			}
+			c.codes[cod.Name] = cod
+			doService(cod)
+		}
+		if res.Canceled {
+			return
 		}
 
 		// 每次变化后向 etcd 上报配置状态

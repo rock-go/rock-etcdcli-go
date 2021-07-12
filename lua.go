@@ -11,7 +11,7 @@ var TClientLua = reflect.TypeOf((*clientLua)(nil)).String()
 
 type clientLua struct {
 	lua.Super
-	cli   *client                 // client
+	cli *client // client
 }
 
 func newClientLua(cfg *Config) *clientLua {
@@ -62,11 +62,9 @@ func (l *clientLua) Close() error {
 	return err
 }
 
-
-// Inject 注入到Lua环境中
+// LuaInjectApi 注入到Lua环境中
 func LuaInjectApi(env xcall.Env) {
 	kv := lua.NewUserKV()
 	kv.Set("client", lua.NewFunction(constructor))
 	env.SetGlobal("etcd", kv)
 }
-

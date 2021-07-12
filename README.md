@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	cli, err := etcdcli.New(etcdcli.Config{
+	cli := etcdcli.NewClient(&etcdcli.Config{
 		Endpoint: "host1:2379,host2:2379,host3:2379",      // etcd 服务端地址, 多个地址用英文逗号分割
 		Username: "4a0301f1-9d2d-41b1-e50f-97af56af132d",  // etcd 的用户名
 		Password: "CE79311BeXkW37OM",                      // etcd 的密码
@@ -19,11 +19,7 @@ func main() {
 		Timeout:  5 * time.Second,                         // 操作 etcd 超时时间
 		TTL:      60,                                      // 节点存活的 TTL, 单位: 秒
 	})
-
-	if err != nil {
-		panic(err)
-	}
-
+	
 	// 启动服务
 	_ = cli.Start()
 
