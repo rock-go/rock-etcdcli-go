@@ -9,10 +9,9 @@ import (
 	"github.com/rock-go/rock/logger"
 	"github.com/rock-go/rock/service"
 	"github.com/rock-go/rock/xcall"
-	"strings"
-
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	"go.etcd.io/etcd/client/v3"
+	"strings"
 )
 
 const (
@@ -135,18 +134,15 @@ func (c *client) read() error {
 	}
 
 	for _, kv := range resp.Kvs {
-		cod := &code{}
-		if err = json.Unmarshal(kv.Value, cod); err != nil {
+		cod, err := unmarshal(kv.Value)
+		if err != nil {
 			continue
 		}
-		cod.Error = doReg(cod)
+		cod.Error = doReg(cod.Name, cod.Chunk)
 		c.codes[cod.Name] = cod
 	}
-	if len(resp.Kvs) > 0 {
-		c.report()
-	}
-
 	doWakeup()
+	c.report() // 上报接收的脚本信息
 	go c.watch()
 
 	return nil
@@ -173,16 +169,31 @@ func (c *client) watch() {
 				continue
 			}
 
-			cod := &code{}
-			if err := json.Unmarshal(event.Kv.Value, cod); err != nil {
+			cod, err := unmarshal(event.Kv.Value)
+			if err != nil {
 				continue
 			}
-			cod.Error = doService(cod)
+			// code 没有变动就不重复执行
+			if old := c.codes[cod.Name]; old != nil && old.Hash == cod.Hash {
+				continue
+			}
+			cod.Error = doService(cod.Name, cod.Chunk)
 			c.codes[cod.Name] = cod
 		}
 		// 每次变化后向 etcd 上报配置状态
 		c.report()
 	}
+}
+
+func unmarshal(data []byte) (*code, error) {
+	cod := &code{}
+	if err := json.Unmarshal(data, cod); err != nil {
+		return nil, err
+	}
+	if sum := checksum(cod.Chunk); sum != cod.Hash {
+		return nil, ErrChecksum
+	}
+	return cod, nil
 }
 
 // report 向etcd上报最新脚本信息
@@ -211,29 +222,21 @@ func (c *client) report() {
 }
 
 // doService 让 lua 虚拟机执行配置脚本
-func doService(c *code) error {
+func doService(name string, chunk []byte) error {
 	defer handle("执行脚本服务")
-	// 校验 chunk 的 hash
-	if !checksum(c) {
-		return ErrChecksum
-	}
-	return service.Do(c.Name, c.Chunk, xcall.Rock)
+	return service.Do(name, chunk, xcall.Rock)
 }
 
-func doReg(c *code) error {
+// doReg 加载code, 暂不执行
+func doReg(name string, chunk []byte) error {
 	defer handle("reg 服务")
-	// 校验 chunk 的 hash
-	if !checksum(c) {
-		return ErrChecksum
-	}
-	return service.Reg(c.Name, c.Chunk, xcall.Rock)
+	return service.Reg(name, chunk, xcall.Rock)
 }
 
 // checksum 校验 chunk 的 hash 是否一致
-func checksum(c *code) bool {
-	sum := md5.Sum(c.Chunk)
-	hash := hex.EncodeToString(sum[:])
-	return hash == c.Hash
+func checksum(data []byte) string {
+	sum := md5.Sum(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func doWakeup() {
