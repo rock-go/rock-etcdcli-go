@@ -6,14 +6,15 @@ import (
 
 	"github.com/rock-go/rock/lua"
 	"github.com/rock-go/rock/xreflect"
-	clientv3 "go.etcd.io/etcd/client/v3"
+
+	"go.etcd.io/etcd/client/v3"
 )
 
 // code 从 etcd 接收的配置下发格式
 type code struct {
 	Name  string    `json:"name"`  // 配置名称
 	Hash  string    `json:"hash"`  // Hash
-	Chunk string    `json:"chunk"` // Lua 配置脚本 Base64
+	Chunk []byte    `json:"chunk"` // Lua 配置脚本 Base64
 	Time  time.Time `json:"time"`  // 发布时间
 }
 

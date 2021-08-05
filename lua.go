@@ -15,13 +15,13 @@ type clientLua struct {
 }
 
 func newClientLua(cfg *Config) *clientLua {
-	clua := &clientLua{
+	cl := &clientLua{
 		cli: NewClient(cfg),
 	}
 
-	clua.S = lua.INIT
-	clua.T = TClientLua
-	return clua
+	cl.S = lua.INIT
+	cl.T = TClientLua
+	return cl
 }
 
 func constructor(L *lua.LState) int {

@@ -2,7 +2,8 @@ package etcdcli
 
 import (
 	"context"
-	"encoding/base64"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -10,8 +11,9 @@ import (
 	"github.com/rock-go/rock/logger"
 	"github.com/rock-go/rock/service"
 	"github.com/rock-go/rock/xcall"
+
 	"go.etcd.io/etcd/api/v3/mvccpb"
-	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/client/v3"
 )
 
 const (
@@ -90,18 +92,26 @@ func (c *client) keepalive() error {
 
 	ctx, cancel := context.WithTimeout(c.ctx, c.cfg.Timeout)
 	defer cancel()
-	// 检查是否重复登录
-	if resp, err := c.cli.Get(ctx, c.active, clientv3.WithCountOnly()); err != nil {
-		return err
-	} else if resp.Count > 0 {
-		return ErrLogged
-	}
 
 	// 申请租约
 	lease, err := c.cli.Grant(ctx, c.cfg.TTL)
 	if err != nil {
 		return err
 	}
+
+	resp, err := c.cli.Txn(ctx).
+		If(clientv3.Compare(clientv3.LeaseValue(c.active), "=", clientv3.NoLease)).
+		Then(clientv3.OpPut(c.active, "", clientv3.WithLease(lease.ID))).
+		Commit()
+	if err != nil {
+		return err
+	}
+	if !resp.Succeeded {
+		return ErrLogged
+	}
+
+	c.lease = lease.ID
+	// 保持续租
 	ch, err := c.cli.KeepAlive(c.ctx, lease.ID)
 	if err != nil {
 		return err
@@ -110,10 +120,6 @@ func (c *client) keepalive() error {
 		for range ch {
 		}
 	}()
-
-	if _, err = c.cli.Put(ctx, c.active, "", clientv3.WithLease(lease.ID)); err == nil {
-		c.lease = lease.ID
-	}
 
 	return err
 }
@@ -134,7 +140,7 @@ func (c *client) read() error {
 			continue
 		}
 		c.codes[cod.Name] = cod
-		doService(cod , true)
+		doService(cod, true)
 	}
 	if len(resp.Kvs) > 0 {
 		c.report()
@@ -169,7 +175,7 @@ func (c *client) watch() {
 				continue
 			}
 			c.codes[cod.Name] = cod
-			doService(cod , false)
+			doService(cod, false)
 		}
 		if res.Canceled {
 			return
@@ -202,30 +208,39 @@ func (c *client) report() {
 }
 
 // doService 让 lua 虚拟机执行配置脚本
-func doService(c *code , reg bool) {
+func doService(c *code, reg bool) {
 	defer func() {
 		if cause := recover(); cause != nil {
 			logger.Errorf("[执行 %s 发生 panic]: %v", c.Name, cause)
 		}
 	}()
 
-	logger.Infof("[执行]: %s", c.Name)
-	data, err := base64.StdEncoding.DecodeString(c.Chunk)
-	if err != nil {
-		logger.Warn(err)
+	// 校验 chunk 的 hash
+	chunk := c.Chunk
+	sum := md5.Sum(chunk)
+	hash := hex.EncodeToString(sum[:])
+	if hash != c.Hash {
+		logger.Warnf("[hash不匹配]: %s", c.Name)
 		return
 	}
 
+	logger.Infof("[开始执行] %s", c.Name)
+	logger.Infof("[接收到配置] %s\n%s\n", c.Name, c.Chunk)
+
+	var err error
 	if reg {
-		err = service.Reg(c.Name , data , xcall.Rock)
+		err = service.Reg(c.Name, chunk, xcall.Rock)
 	} else {
-		err = service.Do(c.Name, data, xcall.Rock)
+		err = service.Do(c.Name, chunk, xcall.Rock)
+	}
+	if err != nil {
+		logger.Error("[执行失败] %v", err)
 	}
 }
 
 func doWakeup() {
 	if e := service.Wakeup(); e != nil {
-		logger.Error("%v" , e)
+		logger.Error("%v", e)
 	}
 }
 
@@ -239,6 +254,6 @@ func delService(name string) {
 
 	logger.Infof("[删除]: %s", name)
 	if err := service.Del(name); err != nil {
-		logger.Error(err)
+		logger.Errorf("[删除 %s 错误]: %v", name, err)
 	}
 }
