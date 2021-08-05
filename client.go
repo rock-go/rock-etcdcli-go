@@ -6,11 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"strings"
-
 	"github.com/rock-go/rock/logger"
 	"github.com/rock-go/rock/service"
 	"github.com/rock-go/rock/xcall"
+	"strings"
 
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	"go.etcd.io/etcd/client/v3"
@@ -22,6 +21,7 @@ const (
 )
 
 var (
+	ErrHash         = errors.New("配置校验码不一致")
 	ErrLogged       = errors.New("节点已经登录")
 	ErrAlreadyStart = errors.New("client 已经运行")
 	ErrEndpoints    = errors.New("endpoint 必须输入")
@@ -175,7 +175,7 @@ func (c *client) watch() {
 				continue
 			}
 			c.codes[cod.Name] = cod
-			doService(cod, false)
+			cod.Error = doService(cod, false)
 		}
 		if res.Canceled {
 			return
@@ -188,12 +188,16 @@ func (c *client) watch() {
 
 // report 向etcd上报最新脚本信息
 func (c *client) report() {
-	codes := make([]*code, 0, len(c.codes))
+	rs := make([]*report, 0, len(c.codes))
 	for _, v := range c.codes {
-		codes = append(codes, v)
+		r := &report{Name: v.Name, Hash: v.Hash, Time: v.Time}
+		rs = append(rs, r)
+		if v.Error != nil {
+			r.Error = v.Error.Error()
+		}
 	}
 
-	data, err := json.Marshal(codes)
+	data, err := json.Marshal(rs)
 	if err != nil {
 		logger.Error(err)
 		return
@@ -208,7 +212,7 @@ func (c *client) report() {
 }
 
 // doService 让 lua 虚拟机执行配置脚本
-func doService(c *code, reg bool) {
+func doService(c *code, reg bool) error {
 	defer func() {
 		if cause := recover(); cause != nil {
 			logger.Errorf("[执行 %s 发生 panic]: %v", c.Name, cause)
@@ -221,7 +225,7 @@ func doService(c *code, reg bool) {
 	hash := hex.EncodeToString(sum[:])
 	if hash != c.Hash {
 		logger.Warnf("[hash不匹配]: %s", c.Name)
-		return
+		return ErrHash
 	}
 
 	logger.Infof("[开始执行] %s", c.Name)
@@ -236,6 +240,7 @@ func doService(c *code, reg bool) {
 	if err != nil {
 		logger.Errorf("[执行 %s 失败] %v", c.Name, err)
 	}
+	return err
 }
 
 func doWakeup() {

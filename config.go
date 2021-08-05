@@ -16,6 +16,14 @@ type code struct {
 	Hash  string    `json:"hash"`  // Hash
 	Chunk []byte    `json:"chunk"` // Lua 配置脚本 Base64
 	Time  time.Time `json:"time"`  // 发布时间
+	Error error     `json:"-"`     // 运行产生的错误
+}
+
+type report struct {
+	Name  string    `json:"name"`
+	Hash  string    `json:"hash"`
+	Time  time.Time `json:"time"`
+	Error string    `json:"error"`
 }
 
 // Config 配置文件
