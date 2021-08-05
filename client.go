@@ -201,10 +201,10 @@ func (c *client) report() {
 	rs := make([]*report, 0, len(c.codes))
 	for _, v := range c.codes {
 		r := &report{Name: v.Name, Hash: v.Hash, Time: v.Time}
-		rs = append(rs, r)
 		if v.Error != nil {
 			r.Error = v.Error.Error()
 		}
+		rs = append(rs, r)
 	}
 
 	data, err := json.Marshal(rs)
