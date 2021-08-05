@@ -234,7 +234,7 @@ func doService(c *code, reg bool) {
 		err = service.Do(c.Name, chunk, xcall.Rock)
 	}
 	if err != nil {
-		logger.Error("[执行失败] %v", err)
+		logger.Errorf("[执行 %s 失败] %v", c.Name, err)
 	}
 }
 
