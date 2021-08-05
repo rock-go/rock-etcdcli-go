@@ -21,7 +21,7 @@ const (
 )
 
 var (
-	ErrHash         = errors.New("配置校验码不一致")
+	ErrChecksum     = errors.New("配置校验码不一致")
 	ErrLogged       = errors.New("节点已经登录")
 	ErrAlreadyStart = errors.New("client 已经运行")
 	ErrEndpoints    = errors.New("endpoint 必须输入")
@@ -139,8 +139,8 @@ func (c *client) read() error {
 		if err = json.Unmarshal(kv.Value, cod); err != nil {
 			continue
 		}
+		cod.Error = doReg(cod)
 		c.codes[cod.Name] = cod
-		doService(cod, true)
 	}
 	if len(resp.Kvs) > 0 {
 		c.report()
@@ -157,6 +157,9 @@ func (c *client) watch() {
 	ch := c.cli.Watch(c.ctx, c.script, clientv3.WithPrefix())
 
 	for res := range ch {
+		if res.Canceled {
+			return
+		}
 		for _, event := range res.Events {
 
 			// 当删除时, etcd只会发送删除的key, 不会发送value
@@ -174,13 +177,9 @@ func (c *client) watch() {
 			if err := json.Unmarshal(event.Kv.Value, cod); err != nil {
 				continue
 			}
+			cod.Error = doService(cod)
 			c.codes[cod.Name] = cod
-			cod.Error = doService(cod, false)
 		}
-		if res.Canceled {
-			return
-		}
-
 		// 每次变化后向 etcd 上报配置状态
 		c.report()
 	}
@@ -212,38 +211,33 @@ func (c *client) report() {
 }
 
 // doService 让 lua 虚拟机执行配置脚本
-func doService(c *code, reg bool) error {
-	defer func() {
-		if cause := recover(); cause != nil {
-			logger.Errorf("[执行 %s 发生 panic]: %v", c.Name, cause)
-		}
-	}()
-
+func doService(c *code) error {
+	defer handle("执行脚本服务")
 	// 校验 chunk 的 hash
-	chunk := c.Chunk
-	sum := md5.Sum(chunk)
+	if !checksum(c) {
+		return ErrChecksum
+	}
+	return service.Do(c.Name, c.Chunk, xcall.Rock)
+}
+
+func doReg(c *code) error {
+	defer handle("reg 服务")
+	// 校验 chunk 的 hash
+	if !checksum(c) {
+		return ErrChecksum
+	}
+	return service.Reg(c.Name, c.Chunk, xcall.Rock)
+}
+
+// checksum 校验 chunk 的 hash 是否一致
+func checksum(c *code) bool {
+	sum := md5.Sum(c.Chunk)
 	hash := hex.EncodeToString(sum[:])
-	if hash != c.Hash {
-		logger.Warnf("[hash不匹配]: %s", c.Name)
-		return ErrHash
-	}
-
-	logger.Infof("[开始执行] %s", c.Name)
-	logger.Infof("[接收到配置] %s\n%s\n", c.Name, c.Chunk)
-
-	var err error
-	if reg {
-		err = service.Reg(c.Name, chunk, xcall.Rock)
-	} else {
-		err = service.Do(c.Name, chunk, xcall.Rock)
-	}
-	if err != nil {
-		logger.Errorf("[执行 %s 失败] %v", c.Name, err)
-	}
-	return err
+	return hash == c.Hash
 }
 
 func doWakeup() {
+	defer handle("wakeup")
 	if e := service.Wakeup(); e != nil {
 		logger.Error("%v", e)
 	}
@@ -251,14 +245,19 @@ func doWakeup() {
 
 // delService 从 lua 虚拟机里删除服务
 func delService(name string) {
-	defer func() {
-		if cause := recover(); cause != nil {
-			logger.Errorf("[删除 %s 发生 panic]: %v", name, cause)
-		}
-	}()
+	defer handle("删除服务")
 
-	logger.Infof("[删除]: %s", name)
+	logger.Infof("[删除服务]: %s", name)
 	if err := service.Del(name); err != nil {
-		logger.Errorf("[删除 %s 错误]: %v", name, err)
+		logger.Errorf("[删除服务 %s 错误]: %v", name, err)
 	}
+}
+
+// handle recover 错误
+func handle(tag string) {
+	cause := recover()
+	if cause == nil {
+		return
+	}
+	logger.Errorf("[%s panic]: %v", tag, cause)
 }
