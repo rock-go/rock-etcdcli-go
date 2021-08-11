@@ -1,6 +1,7 @@
 package etcdcli
 
 import (
+	"github.com/rock-go/rock/node"
 	"strings"
 	"time"
 
@@ -44,6 +45,8 @@ func newConfig(L *lua.LState) *Config {
 		L.RaiseError("%v", e)
 		return nil
 	}
+	cfg.NodeID = node.ID()
+	cfg.Username = node.ID()
 
 	if e := cfg.validate(); e != nil {
 		L.RaiseError("%v", e)
