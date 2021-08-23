@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/rock-go/rock/catch"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ var (
 	ErrAlreadyStart = errors.New("client 已经运行")
 	ErrEndpoints    = errors.New("endpoint 必须输入")
 	ErrNotStarted   = errors.New("client 未没有")
+	ErrTimeout      = errors.New("执行超时")
 )
 
 type client struct {
@@ -144,7 +146,7 @@ func (c *client) read() error {
 		cod.Error = doReg(cod.Name, cod.Chunk)
 		c.codes[cod.Name] = cod
 	}
-	doWakeup()
+	c.wakeup()
 	c.report() // 上报接收的脚本信息
 	go c.watch()
 
@@ -234,8 +236,33 @@ func doService(name string, chunk []byte) error {
 
 // doReg 加载code, 暂不执行
 func doReg(name string, chunk []byte) error {
-	defer handle("reg 服务")
-	return service.Reg(name, chunk, xcall.Rock)
+	fn := func() error {
+		return service.Reg(name, chunk, xcall.Rock)
+	}
+	return timeoutControl(5*time.Second, fn)
+}
+
+func (c *client) wakeup() {
+	fn := func() error {
+		return service.Wakeup()
+	}
+	err := timeoutControl(5*time.Second, fn)
+	if err == nil {
+		logger.Error("wakeup 执行成功")
+		return
+	}
+
+	if errors.Is(err, ErrTimeout) {
+		logger.Error("wakeup 执行超时")
+		return
+	}
+	if es, ok := err.(catch.MultiE); ok {
+		for name, e := range es {
+			if cod := c.codes[name]; cod != nil {
+				cod.Error = e
+			}
+		}
+	}
 }
 
 // checksum 校验 chunk 的 hash 是否一致
@@ -243,17 +270,6 @@ func checksum(data []byte) string {
 	sum := md5.Sum(data)
 	return hex.EncodeToString(sum[:])
 }
-
-func doWakeup() error {
-	defer handle("wakeup")
-	if e := service.Wakeup(); e != nil {
-		logger.Error("%v", e)
-		return e
-	}
-	return nil
-}
-
-var ErrTimeout = errors.New("执行超时")
 
 func timeoutControl(du time.Duration, fn func() error) (err error) {
 	ch := make(chan struct{}, 1)
@@ -279,19 +295,11 @@ func timeoutControl(du time.Duration, fn func() error) (err error) {
 
 // delService 从 lua 虚拟机里删除服务
 func delService(name string) {
-	defer handle("删除服务")
-
-	logger.Infof("[删除服务]: %s", name)
-	if err := service.Del(name); err != nil {
+	fn := func() error {
+		return service.Del(name)
+	}
+	err := timeoutControl(5*time.Second, fn)
+	if err != nil {
 		logger.Errorf("[删除服务 %s 错误]: %v", name, err)
 	}
-}
-
-// handle recover 错误
-func handle(tag string) {
-	cause := recover()
-	if cause == nil {
-		return
-	}
-	logger.Errorf("[%s panic]: %v", tag, cause)
 }
