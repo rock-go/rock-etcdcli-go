@@ -231,7 +231,7 @@ func doService(name string, chunk []byte) error {
 	fn := func() error {
 		return service.Do(name, chunk, xcall.Rock)
 	}
-	return timeoutControl(5*time.Second, fn)
+	return timeoutControl(fn)
 }
 
 // doReg 加载code, 暂不执行
@@ -239,14 +239,14 @@ func doReg(name string, chunk []byte) error {
 	fn := func() error {
 		return service.Reg(name, chunk, xcall.Rock)
 	}
-	return timeoutControl(5*time.Second, fn)
+	return timeoutControl(fn)
 }
 
 func (c *client) wakeup() {
 	fn := func() error {
 		return service.Wakeup()
 	}
-	err := timeoutControl(5*time.Second, fn)
+	err := timeoutControl(fn)
 	if err == nil {
 		logger.Error("wakeup 执行成功")
 		return
@@ -271,7 +271,7 @@ func checksum(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func timeoutControl(du time.Duration, fn func() error) (err error) {
+func timeoutControl(fn func() error) (err error) {
 	ch := make(chan struct{}, 1)
 	go func() {
 		defer func() {
@@ -283,7 +283,7 @@ func timeoutControl(du time.Duration, fn func() error) (err error) {
 		err = fn()
 	}()
 
-	timer := time.NewTimer(du)
+	timer := time.NewTimer(3 * time.Second)
 	select {
 	case <-ch:
 	case <-timer.C:
@@ -298,7 +298,7 @@ func delService(name string) {
 	fn := func() error {
 		return service.Del(name)
 	}
-	err := timeoutControl(5*time.Second, fn)
+	err := timeoutControl(fn)
 	if err != nil {
 		logger.Errorf("[删除服务 %s 错误]: %v", name, err)
 	}
