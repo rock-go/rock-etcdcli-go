@@ -6,12 +6,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
+	"time"
+
 	"github.com/rock-go/rock/logger"
 	"github.com/rock-go/rock/service"
 	"github.com/rock-go/rock/xcall"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	"go.etcd.io/etcd/client/v3"
-	"strings"
 )
 
 const (
@@ -223,8 +226,10 @@ func (c *client) report() {
 
 // doService 让 lua 虚拟机执行配置脚本
 func doService(name string, chunk []byte) error {
-	defer handle("执行脚本服务")
-	return service.Do(name, chunk, xcall.Rock)
+	fn := func() error {
+		return service.Do(name, chunk, xcall.Rock)
+	}
+	return timeoutControl(5*time.Second, fn)
 }
 
 // doReg 加载code, 暂不执行
@@ -239,11 +244,37 @@ func checksum(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func doWakeup() {
+func doWakeup() error {
 	defer handle("wakeup")
 	if e := service.Wakeup(); e != nil {
 		logger.Error("%v", e)
+		return e
 	}
+	return nil
+}
+
+var ErrTimeout = errors.New("执行超时")
+
+func timeoutControl(du time.Duration, fn func() error) (err error) {
+	ch := make(chan struct{}, 1)
+	go func() {
+		defer func() {
+			if cause := recover(); cause != nil {
+				err = fmt.Errorf("panic: %v", cause)
+			}
+			close(ch)
+		}()
+		err = fn()
+	}()
+
+	timer := time.NewTimer(du)
+	select {
+	case <-ch:
+	case <-timer.C:
+		err = ErrTimeout
+	}
+	timer.Stop()
+	return
 }
 
 // delService 从 lua 虚拟机里删除服务
